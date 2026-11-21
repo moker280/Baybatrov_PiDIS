@@ -1,0 +1,8 @@
+[2026-11-21 05:47:26] DB connect: SQLSTATE[HY000] [2002] php_network_getaddresses: getaddrinfo for http failed: Name or service not known
+[2026-11-21 05:47:26] DbUnavailableException: Нет соединения с базой данных. @ /home/buser/Документы/Baybatrov_PiDIS/src/db.php:35
+#0 /home/buser/Документы/Baybatrov_PiDIS/scripts/seed_users.php(31): db()
+#1 {main}
+[2026-11-21 05:52:28] DB connect: SQLSTATE[HY000] [2006] MySQL server has gone away
+[2026-11-21 05:52:28] DbUnavailableException: Нет соединения с базой данных. @ /home/buser/Документы/Baybatrov_PiDIS/src/db.php:35
+#0 /home/buser/Документы/Baybatrov_PiDIS/scripts/seed_users.php(31): db()
+#1 {main}

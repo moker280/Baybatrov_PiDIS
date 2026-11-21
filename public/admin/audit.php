@@ -25,6 +25,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         redirect('/admin/audit.php?view=' . $id);
     }
+    if (post_str('action') === 'undo_import') {
+        $error = audit_undo_import($row);
+        if ($error !== null) {
+            flash_add('error', $error);
+        } else {
+            flash_add('success', 'Импорт отменён, состояние восстановлено.');
+        }
+        redirect('/admin/audit.php?view=' . $id);
+    }
     if (post_str('action') === 'delete') {
         // Удаление записи журнала само журналируется (с состоянием «до»).
         $decoded = [
@@ -97,8 +106,15 @@ layout_header('Журнал действий', 'admin');
                     <input type="hidden" name="id" value="<?= (int) $viewRow['id'] ?>">
                     <button class="btn" type="submit">Восстановить запись</button>
                 </form>
-            <?php else: ?>
-                <p class="muted">Восстановление доступно для событий «Обновление» и «Удаление» сущностей справочника и пользователей.</p>
+            <?php endif; ?>
+            <?php if (audit_is_import_undo($viewRow)): ?>
+                <form method="post" action="/admin/audit.php" class="inline-form"
+                      data-confirm="Отменить импорт №<?= (int) $viewRow['id'] ?> и вернуть состояние базы?">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="action" value="undo_import">
+                    <input type="hidden" name="id" value="<?= (int) $viewRow['id'] ?>">
+                    <button class="btn" type="submit">Отменить импорт</button>
+                </form>
             <?php endif; ?>
             <form method="post" action="/admin/audit.php" class="inline-form"
                   data-confirm="Удалить запись журнала №<?= (int) $viewRow['id'] ?>? Само удаление будет зафиксировано.">
@@ -227,7 +243,7 @@ layout_header('Журнал действий', 'admin');
                             <td><?= e(audit_action_label($row['action'])) ?></td>
                             <td><?= e($row['entity_type'] ?? '—') ?></td>
                             <td><?= $row['entity_id'] === null ? '—' : (int) $row['entity_id'] ?></td>
-                            <td><?= audit_can_restore($row) ? '<span class="badge badge-active">доступно</span>' : '—' ?></td>
+                                            <td><?= (audit_can_restore($row) || audit_is_import_undo($row)) ? '<span class="badge badge-active">доступно</span>' : '—' ?></td>
                             <td><a class="btn btn-small btn-secondary" href="/admin/audit.php?view=<?= (int) $row['id'] ?>">Просмотр</a></td>
                         </tr>
                     <?php endforeach; ?>

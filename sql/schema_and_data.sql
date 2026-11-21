@@ -33,6 +33,8 @@ CREATE TABLE users (
     lock_until DATETIME NULL,
     login_fail_count INT NOT NULL DEFAULT 0,
     code_fail_count INT NOT NULL DEFAULT 0,
+    is_demo TINYINT(1) NOT NULL DEFAULT 0,
+    demo_password VARCHAR(512) NULL,
     PRIMARY KEY (id),
     UNIQUE KEY uq_users_login (login),
     CONSTRAINT chk_users_role CHECK (role IN ('admin', 'operator', 'user')),

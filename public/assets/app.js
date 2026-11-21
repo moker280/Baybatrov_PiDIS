@@ -108,7 +108,11 @@ function initCaptcha() {
 
         function build(tokens) {
             tray.innerHTML = '';
-            cells.forEach((cell) => { cell.innerHTML = ''; });
+            cells.forEach((cell) => {
+                cell.querySelectorAll('.captcha-piece').forEach((piece) => piece.remove());
+            });
+            const ghostSrc = src + '?t=' + encodeURIComponent(tokens[0]);
+            box.querySelectorAll('.captcha-ghost').forEach((ghost) => { ghost.src = ghostSrc; });
             selected = null;
             tokens.forEach((token) => {
                 const piece = document.createElement('div');
@@ -194,6 +198,45 @@ function initCaptcha() {
     });
 }
 
+// ================= Автозаполнение тестовых учётных записей (данные из БД) =================
+function initDemoAutofill() {
+    const panel = document.querySelector('[data-demo-accounts]');
+    if (!panel) return;
+    let accounts = [];
+    try {
+        accounts = JSON.parse(panel.getAttribute('data-demo-accounts')) || [];
+    } catch (error) {
+        return;
+    }
+    const loginField = document.getElementById('login');
+    const passwordField = document.getElementById('password');
+    const status = panel.querySelector('[data-demo-status]');
+    if (!loginField || !passwordField) return;
+
+    const buttons = Array.from(panel.querySelectorAll('[data-demo-role]'));
+    buttons.forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const account = accounts.find((item) => item.role === btn.getAttribute('data-demo-role'));
+            if (!account || !account.password) return;
+            loginField.value = account.login;
+            passwordField.value = account.password;
+            [loginField, passwordField].forEach((field) => {
+                field.classList.remove('field-filled');
+                void field.offsetWidth;
+                field.classList.add('field-filled');
+            });
+            buttons.forEach((other) => other.classList.remove('is-active'));
+            btn.classList.add('is-active');
+            if (status) {
+                status.textContent = 'Подставлены данные: ' + account.label + '. Осталось собрать капчу.';
+                status.classList.remove('hidden');
+            }
+            loginField.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            loginField.focus({ preventScroll: true });
+        });
+    });
+}
+
 // ================= Обратный отсчёт одноразового кода =================
 function initCountdown() {
     const el = document.querySelector('[data-countdown]');
@@ -243,4 +286,5 @@ document.addEventListener('DOMContentLoaded', () => {
     initCountdown();
     initConfirmForms();
     initFlashClose();
+    initDemoAutofill();
 });

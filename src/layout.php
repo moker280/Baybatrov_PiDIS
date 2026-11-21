@@ -138,17 +138,20 @@ function captcha_html(): void
     if (captcha_tokens() === []) {
         captcha_generate();
     }
+    $tokens = captcha_tokens();
+    $ghostSrc = '/captcha.php?t=' . urlencode($tokens[0]);
     ?>
 <div class="captcha" data-captcha
-     data-tokens="<?= e(json_encode(captcha_tokens(), JSON_UNESCAPED_UNICODE)) ?>"
+     data-tokens="<?= e(json_encode($tokens, JSON_UNESCAPED_UNICODE)) ?>"
      data-src="/captcha.php"
      data-csrf="<?= e(csrf_token()) ?>">
     <p class="captcha-task">Соберите изображение: перетащите фрагменты в ячейки 2×2 или кликните фрагмент, затем ячейку.</p>
     <div class="captcha-board">
-        <div class="captcha-cell" data-cell="0"></div>
-        <div class="captcha-cell" data-cell="1"></div>
-        <div class="captcha-cell" data-cell="2"></div>
-        <div class="captcha-cell" data-cell="3"></div>
+        <?php for ($i = 0; $i < 4; $i++): ?>
+            <div class="captcha-cell" data-cell="<?= $i ?>">
+                <img class="captcha-ghost" src="<?= e($ghostSrc) ?>" alt="" aria-hidden="true">
+            </div>
+        <?php endfor; ?>
     </div>
     <div class="captcha-tray" data-captcha-tray></div>
     <div class="captcha-controls">

@@ -263,6 +263,14 @@ function captcha_image_path(string $token): ?string
     if ($token === '' || !isset($map[$token])) {
         return null;
     }
-    $file = APP_ROOT . '/captcha/' . ($map[$token] + 1) . '.png';
+    $order = cfg('app.captcha_order', [1, 2, 3, 4]);
+    if (!is_array($order) || count($order) !== 4) {
+        $order = [1, 2, 3, 4];
+    }
+    $fileNum = (int) ($order[(int) $map[$token]] ?? 0);
+    if ($fileNum < 1 || $fileNum > 4) {
+        return null;
+    }
+    $file = APP_ROOT . '/captcha/' . $fileNum . '.png';
     return is_file($file) ? $file : null;
 }

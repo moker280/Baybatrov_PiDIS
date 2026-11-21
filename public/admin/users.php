@@ -17,6 +17,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($action === 'save') {
         $editId = $id;
+        $editRow = null;
         if ($id > 0) {
             $stmt = db()->prepare('SELECT * FROM users WHERE id = ?');
             $stmt->execute([$id]);
@@ -33,7 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $password = (string) ($_POST['password'] ?? '');
         $confirm = (string) ($_POST['password2'] ?? '');
 
-        if (!$editRow && preg_match('/^[A-Za-z0-9_.-]{3,64}$/', $login) !== 1) {
+        if (preg_match('/^[A-Za-z0-9_.-]{3,64}$/', $login) !== 1) {
             $errors[] = 'Логин: 3–64 символа (латиница, цифры, точка, дефис, подчёркивание).';
         }
         if (!in_array($role, ['user', 'operator', 'admin'], true)) {
@@ -58,22 +59,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $errors[] = 'Пароль и подтверждение не совпадают.';
             }
         }
-        if (!$editRow) {
-            $stmt = db()->prepare('SELECT id FROM users WHERE login = ?');
-            $stmt->execute([$login]);
+        if (preg_match('/^[A-Za-z0-9_.-]{3,64}$/', $login) === 1) {
+            $stmt = db()->prepare('SELECT id FROM users WHERE login = ? AND id <> ?');
+            $stmt->execute([$login, $editRow ? (int) $editRow['id'] : 0]);
             if ($stmt->fetch()) {
                 $errors[] = 'Логин уже занят.';
             }
         }
-        $formData = ['login' => $editRow ? $editRow['login'] : $login, 'email' => $email, 'phone' => $phone, 'role' => $role];
+        $formData = ['login' => $login, 'email' => $email, 'phone' => $phone, 'role' => $role];
         if ($errors === []) {
             $now = date('Y-m-d H:i:s');
             try {
                 if ($editRow) {
                     $hash = $setPassword ? password_hash($password, app_password_algo()) : $editRow['password_hash'];
                     $lastChange = $setPassword ? $now : $editRow['last_password_change'];
-                    db()->prepare('UPDATE users SET role = ?, email = ?, phone = ?, password_hash = ?, last_password_change = ? WHERE id = ?')
-                        ->execute([$role, encrypt_field($email), $phone === '' ? null : encrypt_field($phone), $hash, $lastChange, $id]);
+                    // Демо-пароль обновляется только у тестовой записи и только при задании пароля.
+                    $demoPassword = ($setPassword && (int) $editRow['is_demo'] === 1)
+                        ? encrypt_field($password)
+                        : $editRow['demo_password'];
+                    db()->prepare(
+                        'UPDATE users SET login = ?, role = ?, email = ?, phone = ?, password_hash = ?,
+                                          last_password_change = ?, demo_password = ? WHERE id = ?'
+                    )->execute([
+                        $login, $role, encrypt_field($email), $phone === '' ? null : encrypt_field($phone),
+                        $hash, $lastChange, $demoPassword, $id,
+                    ]);
                     $stmt = db()->prepare('SELECT * FROM users WHERE id = ?');
                     $stmt->execute([$id]);
                     log_action('update', 'users', $id, $editRow, $stmt->fetch());
@@ -81,8 +91,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 } else {
                     db()->prepare(
                         'INSERT INTO users (login, password_hash, role, email, phone, created_at, last_password_change,
-                                            is_locked, lock_until, login_fail_count, code_fail_count)
-                         VALUES (?, ?, ?, ?, ?, ?, ?, 0, NULL, 0, 0)'
+                                            is_locked, lock_until, login_fail_count, code_fail_count, is_demo, demo_password)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, 0, NULL, 0, 0, 0, NULL)'
                     )->execute([$login, password_hash($password, app_password_algo()), $role,
                         encrypt_field($email), $phone === '' ? null : encrypt_field($phone), $now, $now]);
                     $newId = (int) db()->lastInsertId();
@@ -120,15 +130,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $target = $stmt->fetch();
         if (!$target) {
             flash_add('error', 'Пользователь не найден.');
-        } elseif ($target['role'] === 'admin') {
-            flash_add('error', 'Удаление учётной записи администратора запрещено (ТЗ 3.2.7).');
         } elseif ($id === (int) $user['id']) {
             flash_add('error', 'Нельзя удалить собственную учётную запись.');
         } else {
-            // Записи журнала сохраняются: FK audit_log.user_id имеет ON DELETE SET NULL.
+            db()->prepare('SET @app_user_id = ?')->execute([(int) $user['id']]);
             db()->prepare('DELETE FROM users WHERE id = ?')->execute([$id]);
             log_action('delete', 'users', $id, $target, null);
-            flash_add('success', 'Пользователь удалён. Его записи журнала сохранены.');
+            flash_add('success', 'Пользователь удалён.');
         }
         redirect('/admin/users.php');
     } else {
@@ -173,9 +181,9 @@ layout_header('Пользователи', 'admin');
             <input type="hidden" name="action" value="save">
             <input type="hidden" name="id" value="<?= $editId ?>">
             <div class="form-row">
-                <label for="u_login">Логин <?= $editId > 0 ? '(не изменяется)' : '<span class="req">*</span>' ?></label>
-                <input type="text" id="u_login" name="login" maxlength="64" value="<?= e($formData['login']) ?>"
-                    <?= $editId > 0 ? 'readonly' : 'required' ?>>
+                <label for="u_login">Логин <span class="req">*</span></label>
+                <input type="text" id="u_login" name="login" required maxlength="64"
+                       value="<?= e($formData['login']) ?>">
             </div>
             <div class="form-row">
                 <label for="u_role">Роль <span class="req">*</span></label>
@@ -315,16 +323,14 @@ layout_header('Пользователи', 'admin');
                                         <button class="btn btn-small btn-secondary" type="submit">Заблокировать</button>
                                     </form>
                                 <?php endif; ?>
-                                <?php if ($row['role'] !== 'admin'): ?>
+                                <?php if ((int) $row['id'] !== (int) $user['id']): ?>
                                     <form method="post" action="/admin/users.php" class="inline-form"
-                                          data-confirm="Удалить пользователя «<?= e($row['login']) ?>»? Записи журнала сохранятся.">
+                                          data-confirm="Удалить пользователя «<?= e($row['login']) ?>»?">
                                         <?= csrf_field() ?>
                                         <input type="hidden" name="action" value="delete">
                                         <input type="hidden" name="id" value="<?= (int) $row['id'] ?>">
                                         <button class="btn btn-small btn-danger" type="submit">Удалить</button>
                                     </form>
-                                <?php else: ?>
-                                    <span class="muted">удаление запрещено</span>
                                 <?php endif; ?>
                             </td>
                         </tr>

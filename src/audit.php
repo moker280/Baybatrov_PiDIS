@@ -151,3 +151,29 @@ function audit_restore(array $row): ?string
         throw $e;
     }
 }
+
+function audit_is_import_undo(array $row): bool
+{
+    return $row['action'] === 'import' && !empty($row['state_before']);
+}
+
+function audit_undo_import(array $row): ?string
+{
+    if (!audit_is_import_undo($row)) {
+        return 'Для этой записи нет снимка состояния.';
+    }
+    $snapshot = audit_state($row['state_before']);
+    if (!is_array($snapshot) || $snapshot === []) {
+        return 'Снимок состояния не читается.';
+    }
+    try {
+        db_restore_snapshot($snapshot);
+    } catch (PDOException $e) {
+        if ($e->getCode() === '23000') {
+            return 'Конфликт ограничений БД при откате импорта.';
+        }
+        throw $e;
+    }
+    log_action('restore', null, null, null, ['undo_import' => (int) $row['id']]);
+    return null;
+}

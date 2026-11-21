@@ -186,3 +186,37 @@ function auth_logout(): void
     }
     session_destroy();
 }
+
+function demo_accounts(): array
+{
+    if (!cfg('app.demo_mode')) {
+        return [];
+    }
+    try {
+        $rows = db()->query(
+            'SELECT login, role, password_hash, demo_password, is_locked, lock_until
+             FROM users WHERE is_demo = 1'
+        )->fetchAll();
+        $order = ['admin' => 0, 'operator' => 1, 'user' => 2];
+        usort($rows, static fn (array $a, array $b): int => ($order[$a['role']] ?? 9) <=> ($order[$b['role']] ?? 9));
+        $accounts = [];
+        foreach ($rows as $row) {
+            $plain = decrypt_field($row['demo_password']);
+            // Показываем и подставляем только пароль, который подходит к текущему хэшу.
+            $valid = is_string($plain) && $plain !== '' && password_verify($plain, (string) $row['password_hash']);
+            $locked = (int) $row['is_locked'] === 1 && strtotime((string) $row['lock_until']) > time();
+            $accounts[] = [
+                'role' => (string) $row['role'],
+                'label' => role_label((string) $row['role']),
+                'login' => (string) $row['login'],
+                'password' => $valid ? $plain : null,
+                'locked' => $locked,
+                'lock_until' => $locked ? fmt_dt($row['lock_until']) : null,
+            ];
+        }
+        return $accounts;
+    } catch (Throwable $e) {
+        app_log_write('demo_accounts: ' . $e->getMessage());
+        return [];
+    }
+}

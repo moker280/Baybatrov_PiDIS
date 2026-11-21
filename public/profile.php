@@ -29,10 +29,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $before = $user;
         $hash = password_hash($new, app_password_algo());
         $now = date('Y-m-d H:i:s');
-        db()->prepare('UPDATE users SET password_hash = ?, last_password_change = ? WHERE id = ?')
-            ->execute([$hash, $now, $user['id']]);
+        // У тестовой записи синхронизируем демо-пароль, чтобы автозаполнение осталось рабочим.
+        $demoPassword = (int) $user['is_demo'] === 1 ? encrypt_field($new) : $user['demo_password'];
+        db()->prepare('UPDATE users SET password_hash = ?, last_password_change = ?, demo_password = ? WHERE id = ?')
+            ->execute([$hash, $now, $demoPassword, $user['id']]);
         $user['password_hash'] = $hash;
         $user['last_password_change'] = $now;
+        $user['demo_password'] = $demoPassword;
         log_action('update', 'users', (int) $user['id'], $before, $user);
         session_regenerate_id(true);
         flash_add('success', 'Пароль изменён. Следующая плановая смена — через ' . (int) cfg('security.password_days', 90) . ' дней.');

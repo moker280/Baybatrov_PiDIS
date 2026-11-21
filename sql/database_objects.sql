@@ -54,9 +54,9 @@ CREATE TRIGGER trg_users_before_delete
 BEFORE DELETE ON users
 FOR EACH ROW
 BEGIN
-    IF OLD.role = 'admin' THEN
+    IF OLD.id = @app_user_id THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Удаление учётной записи администратора запрещено';
+            SET MESSAGE_TEXT = 'Удаление собственной учётной записи запрещено';
     END IF;
 END $$
 

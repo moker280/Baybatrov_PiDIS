@@ -14,6 +14,7 @@ error_reporting(E_ALL);
 require __DIR__ . '/functions.php';
 require __DIR__ . '/db.php';
 require __DIR__ . '/audit.php';
+require __DIR__ . '/backup.php';
 require __DIR__ . '/auth.php';
 require __DIR__ . '/entities.php';
 require __DIR__ . '/entity_ops.php';

@@ -86,8 +86,6 @@ layout_header('Подтверждение входа', 'guest');
         <p class="muted">Этап 2 из 2 для учётной записи <b><?= e($user['login']) ?></b>. Введите шестизначный код.</p>
         <?php if (cfg('app.demo_mode')): ?>
             <div class="demo-code">Демо-код: <b><?= e((string) $otp['code']) ?></b></div>
-            <p class="demo-note">Внимание: вывод кода на этом экране — учебная имитация второго фактора,
-                а не полноценная независимая 2FA. В реальной системе код передаётся по независимому каналу.</p>
         <?php endif; ?>
         <p>Срок действия кода:
             <span class="countdown" data-countdown data-expires="<?= (int) $otp['expires'] ?>" data-now="<?= time() ?>"></span>
