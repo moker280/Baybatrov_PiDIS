@@ -1,0 +1,122 @@
+<?php
+
+declare(strict_types=1);
+
+return [
+    'manufacturers' => [
+        'title' => 'Производители',
+        'one' => 'производителя',
+        'fields' => [
+            'name' => ['label' => 'Наименование', 'type' => 'text', 'required' => true, 'max' => 120],
+            'country' => ['label' => 'Страна', 'type' => 'text', 'required' => true, 'max' => 60, 'default' => 'Россия'],
+            'founded_year' => ['label' => 'Год основания', 'type' => 'int', 'required' => true, 'min' => 1800, 'max' => 2100],
+            'status' => ['label' => 'Статус', 'type' => 'select', 'required' => true, 'default' => 'active',
+                'options' => ['active' => 'Действует', 'archived' => 'Архив']],
+        ],
+        'list_sql' => 'SELECT m.*, fn_manufacturer_models_count(m.id) AS models_count FROM manufacturers m',
+        'columns' => ['name' => 'Наименование', 'country' => 'Страна', 'founded_year' => 'Год основания',
+            'status' => 'Статус', 'models_count' => 'Моделей'],
+        'sortable' => ['name' => 'm.name', 'country' => 'm.country', 'founded_year' => 'm.founded_year',
+            'status' => 'm.status', 'models_count' => 'models_count'],
+        'default_order' => 'm.name',
+        'filters' => [
+            ['param' => 'id', 'kind' => 'eq', 'col' => 'm.id', 'int' => true, 'label' => 'ID'],
+            ['param' => 'q', 'kind' => 'like', 'cols' => ['m.name', 'm.country'], 'label' => 'Поиск (наименование, страна)'],
+            ['param' => 'status', 'kind' => 'eq', 'col' => 'm.status', 'label' => 'Статус',
+                'options' => ['active' => 'Действует', 'archived' => 'Архив']],
+            ['param' => 'year_from', 'kind' => 'gte', 'col' => 'm.founded_year', 'int' => true, 'label' => 'Год основания от'],
+            ['param' => 'year_to', 'kind' => 'lte', 'col' => 'm.founded_year', 'int' => true, 'label' => 'до'],
+        ],
+        'transitions' => ['active' => ['archived'], 'archived' => ['active']],
+    ],
+    'car_models' => [
+        'title' => 'Модели автомобилей',
+        'one' => 'модель',
+        'fields' => [
+            'manufacturer_id' => ['label' => 'Производитель', 'type' => 'fk', 'required' => true, 'source' => 'manufacturers'],
+            'name' => ['label' => 'Наименование модели', 'type' => 'text', 'required' => true, 'max' => 120],
+            'body_type' => ['label' => 'Тип кузова', 'type' => 'select', 'required' => true, 'options' => [
+                'седан' => 'Седан', 'хэтчбек' => 'Хэтчбек', 'лифтбек' => 'Лифтбек', 'универсал' => 'Универсал',
+                'купе' => 'Купе', 'кроссовер' => 'Кроссовер', 'внедорожник' => 'Внедорожник',
+                'минивэн' => 'Минивэн', 'фургон' => 'Фургон', 'пикап' => 'Пикап']],
+            'production_start_year' => ['label' => 'Год начала выпуска', 'type' => 'int', 'required' => true, 'min' => 1900, 'max' => 2100],
+            'production_end_year' => ['label' => 'Год окончания выпуска', 'type' => 'int', 'required' => false, 'min' => 1900, 'max' => 2100],
+            'status' => ['label' => 'Статус производства', 'type' => 'select', 'required' => true, 'default' => 'in_production',
+                'options' => ['in_production' => 'Производится', 'discontinued' => 'Снят с производства']],
+        ],
+        'list_sql' => 'SELECT c.*, mf.name AS manufacturer_name, fn_model_production_years(c.id) AS production_years
+             FROM car_models c JOIN manufacturers mf ON mf.id = c.manufacturer_id',
+        'columns' => ['manufacturer_name' => 'Производитель', 'name' => 'Модель', 'body_type' => 'Кузов',
+            'production_years' => 'Годы выпуска', 'status' => 'Статус'],
+        'sortable' => ['manufacturer_name' => 'mf.name', 'name' => 'c.name', 'body_type' => 'c.body_type',
+            'production_years' => 'c.production_start_year', 'status' => 'c.status'],
+        'default_order' => 'mf.name, c.name',
+        'filters' => [
+            ['param' => 'id', 'kind' => 'eq', 'col' => 'c.id', 'int' => true, 'label' => 'ID'],
+            ['param' => 'q', 'kind' => 'like', 'cols' => ['c.name', 'mf.name'], 'label' => 'Поиск (модель, производитель)'],
+            ['param' => 'manufacturer_id', 'kind' => 'eq', 'col' => 'c.manufacturer_id', 'int' => true,
+                'label' => 'Производитель', 'fk' => 'manufacturers'],
+            ['param' => 'body_type', 'kind' => 'eq', 'col' => 'c.body_type', 'label' => 'Кузов', 'field' => 'body_type'],
+            ['param' => 'status', 'kind' => 'eq', 'col' => 'c.status', 'label' => 'Статус',
+                'options' => ['in_production' => 'Производится', 'discontinued' => 'Снят с производства']],
+            ['param' => 'start_from', 'kind' => 'gte', 'col' => 'c.production_start_year', 'int' => true, 'label' => 'Начало выпуска от'],
+            ['param' => 'start_to', 'kind' => 'lte', 'col' => 'c.production_start_year', 'int' => true, 'label' => 'до'],
+            ['param' => 'end_from', 'kind' => 'gte', 'col' => 'c.production_end_year', 'int' => true, 'label' => 'Окончание выпуска от'],
+            ['param' => 'end_to', 'kind' => 'lte', 'col' => 'c.production_end_year', 'int' => true, 'label' => 'до'],
+        ],
+        'transitions' => ['in_production' => ['discontinued'], 'discontinued' => ['in_production']],
+    ],
+    'modifications' => [
+        'title' => 'Модификации',
+        'one' => 'модификацию',
+        'fields' => [
+            'car_model_id' => ['label' => 'Модель', 'type' => 'fk', 'required' => true, 'source' => 'car_models'],
+            'code' => ['label' => 'Код модификации', 'type' => 'text', 'required' => true, 'max' => 60],
+            'engine_type' => ['label' => 'Тип двигателя', 'type' => 'select', 'required' => true, 'options' => [
+                'бензин' => 'Бензин', 'дизель' => 'Дизель', 'гибрид' => 'Гибрид', 'электро' => 'Электро', 'газ' => 'Газ']],
+            'engine_volume_cm3' => ['label' => 'Объём двигателя, см³', 'type' => 'int', 'required' => false, 'min' => 500, 'max' => 20000],
+            'power_hp' => ['label' => 'Мощность, л.с.', 'type' => 'int', 'required' => true, 'min' => 30, 'max' => 2000],
+            'transmission' => ['label' => 'Коробка передач', 'type' => 'select', 'required' => true, 'options' => [
+                'механика' => 'Механика', 'автомат' => 'Автомат', 'робот' => 'Робот',
+                'вариатор' => 'Вариатор', 'редуктор' => 'Редуктор']],
+            'drive_type' => ['label' => 'Привод', 'type' => 'select', 'required' => true, 'options' => [
+                'передний' => 'Передний', 'задний' => 'Задний', 'полный' => 'Полный']],
+            'year_start' => ['label' => 'Год начала выпуска', 'type' => 'int', 'required' => true, 'min' => 1900, 'max' => 2100],
+            'year_end' => ['label' => 'Год окончания выпуска', 'type' => 'int', 'required' => false, 'min' => 1900, 'max' => 2100],
+            'status' => ['label' => 'Статус производства', 'type' => 'select', 'required' => true, 'default' => 'in_production',
+                'options' => ['in_production' => 'Производится', 'discontinued' => 'Снят с производства']],
+        ],
+        'list_sql' => 'SELECT md.*, c.name AS model_name, mf.name AS manufacturer_name
+             FROM modifications md
+             JOIN car_models c ON c.id = md.car_model_id
+             JOIN manufacturers mf ON mf.id = c.manufacturer_id',
+        'columns' => ['code' => 'Код', 'manufacturer_name' => 'Производитель', 'model_name' => 'Модель',
+            'engine_type' => 'Двигатель', 'engine_volume_cm3' => 'Объём, см³', 'power_hp' => 'Л.с.',
+            'transmission' => 'КПП', 'drive_type' => 'Привод', 'year_start' => 'С года', 'year_end' => 'По год',
+            'status' => 'Статус'],
+        'sortable' => ['code' => 'md.code', 'manufacturer_name' => 'mf.name', 'model_name' => 'c.name',
+            'engine_type' => 'md.engine_type', 'engine_volume_cm3' => 'md.engine_volume_cm3',
+            'power_hp' => 'md.power_hp', 'transmission' => 'md.transmission', 'drive_type' => 'md.drive_type',
+            'year_start' => 'md.year_start', 'year_end' => 'md.year_end', 'status' => 'md.status'],
+        'default_order' => 'md.code',
+        'filters' => [
+            ['param' => 'id', 'kind' => 'eq', 'col' => 'md.id', 'int' => true, 'label' => 'ID'],
+            ['param' => 'q', 'kind' => 'like', 'cols' => ['md.code', 'c.name', 'mf.name'], 'label' => 'Поиск (код, модель, производитель)'],
+            ['param' => 'car_model_id', 'kind' => 'eq', 'col' => 'md.car_model_id', 'int' => true, 'label' => 'Модель', 'fk' => 'car_models'],
+            ['param' => 'engine_type', 'kind' => 'eq', 'col' => 'md.engine_type', 'label' => 'Двигатель', 'field' => 'engine_type'],
+            ['param' => 'transmission', 'kind' => 'eq', 'col' => 'md.transmission', 'label' => 'КПП', 'field' => 'transmission'],
+            ['param' => 'drive_type', 'kind' => 'eq', 'col' => 'md.drive_type', 'label' => 'Привод', 'field' => 'drive_type'],
+            ['param' => 'status', 'kind' => 'eq', 'col' => 'md.status', 'label' => 'Статус',
+                'options' => ['in_production' => 'Производится', 'discontinued' => 'Снят с производства']],
+            ['param' => 'volume_from', 'kind' => 'gte', 'col' => 'md.engine_volume_cm3', 'int' => true, 'label' => 'Объём от'],
+            ['param' => 'volume_to', 'kind' => 'lte', 'col' => 'md.engine_volume_cm3', 'int' => true, 'label' => 'до'],
+            ['param' => 'power_from', 'kind' => 'gte', 'col' => 'md.power_hp', 'int' => true, 'label' => 'Мощность от'],
+            ['param' => 'power_to', 'kind' => 'lte', 'col' => 'md.power_hp', 'int' => true, 'label' => 'до'],
+            ['param' => 'year_from', 'kind' => 'gte', 'col' => 'md.year_start', 'int' => true, 'label' => 'Год начала от'],
+            ['param' => 'year_to', 'kind' => 'lte', 'col' => 'md.year_start', 'int' => true, 'label' => 'до'],
+            ['param' => 'end_from', 'kind' => 'gte', 'col' => 'md.year_end', 'int' => true, 'label' => 'Год окончания от'],
+            ['param' => 'end_to', 'kind' => 'lte', 'col' => 'md.year_end', 'int' => true, 'label' => 'до'],
+        ],
+        'transitions' => ['in_production' => ['discontinued'], 'discontinued' => ['in_production']],
+    ],
+];

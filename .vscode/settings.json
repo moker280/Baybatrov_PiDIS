@@ -1,0 +1,6 @@
+{
+    "phpserver.relativePath": ".",
+    "phpserver.router": "router.php",
+    "phpserver.ip": "localhost",
+    "phpserver.port": 3000
+}
