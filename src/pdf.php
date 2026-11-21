@@ -2,14 +2,53 @@
 
 declare(strict_types=1);
 
+function pdf_is_absolute_path(string $p): bool
+{
+    return $p !== '' && ($p[0] === '/' || $p[0] === '\\' || preg_match('#^[A-Za-z]:[\\\\/]#', $p) === 1);
+}
+
+function pdf_font_bytes(): string
+{
+    $configured = (string) cfg('pdf.font', '');
+    $candidates = [];
+    if ($configured !== '') {
+        $candidates[] = pdf_is_absolute_path($configured) ? $configured : APP_ROOT . '/' . $configured;
+    }
+    foreach ((array) cfg('pdf.fonts', []) as $path) {
+        $candidates[] = pdf_is_absolute_path((string) $path) ? $path : APP_ROOT . '/' . $path;
+    }
+    foreach ($candidates as $path) {
+        if (is_string($path) && $path !== '' && is_file($path) && is_readable($path)) {
+            $bytes = file_get_contents($path);
+            if ($bytes !== false && $bytes !== '') {
+                return $bytes;
+            }
+        }
+    }
+    throw new RuntimeException('В папке fonts/ нет TTF-шрифта с кириллицей. Положите fonts/DejaVuSans.ttf (см. fonts/README.md).');
+}
+
 final class Pdf
 {
+    private Ttf $font;
+    private string $fontBytes;
+    private string $fontName;
     private array $pages = [];
     private int $pageIndex = -1;
+    private array $usedGids = [];
+    private array $gidToUnicode = [];
 
     public function __construct()
     {
+        $this->fontBytes = pdf_font_bytes();
+        $this->font = new Ttf($this->fontBytes);
+        $this->fontName = preg_replace('/[^A-Za-z0-9-]/', '', 'EmbeddedSans') ?: 'EmbeddedSans';
         $this->addPage();
+    }
+
+    public function font(): Ttf
+    {
+        return $this->font;
     }
 
     public function addPage(): void
@@ -18,18 +57,34 @@ final class Pdf
         $this->pageIndex++;
     }
 
+    private function encode(string $text): string
+    {
+        $hex = '';
+        foreach (preg_split('//u', $text, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $ch) {
+            $cp = mb_ord($ch, 'UTF-8');
+            $gid = $this->font->gid($cp);
+            $this->usedGids[$gid] = true;
+            if (!isset($this->gidToUnicode[$gid]) && $cp <= 0xFFFF) {
+                $this->gidToUnicode[$gid] = $cp;
+            }
+            $hex .= sprintf('%04X', $gid);
+        }
+        return $hex;
+    }
+
     public function text(float $x, float $y, int $size, string $text, bool $bold = false): void
     {
-        $cp = mb_convert_encoding($text, 'CP1251', 'UTF-8');
-        $escaped = str_replace(['\\', '(', ')'], ['\\\\', '\\(', '\\)'], $cp);
-        $this->pages[$this->pageIndex][] = sprintf(
-            'BT %s %d Tf %.2F %.2F Td (%s) Tj ET',
-            $bold ? '/F2' : '/F1',
-            $size,
-            $x,
-            $y,
-            $escaped
-        );
+        $hex = $this->encode($text);
+        $ops = 'BT';
+        if ($bold) {
+            $ops .= ' 2 Tr ' . sprintf('%.2F', $size * 0.02) . ' w 0 G';
+        } else {
+            $ops .= ' 0 Tr';
+        }
+        $ops .= ' 0 g';
+        $ops .= sprintf(' /F1 %d Tf %.2F %.2F Td', $size, $x, $y);
+        $ops .= ' <' . $hex . '> Tj ET';
+        $this->pages[$this->pageIndex][] = $ops;
     }
 
     public function line(float $x1, float $y1, float $x2, float $y2): void
@@ -37,91 +92,134 @@ final class Pdf
         $this->pages[$this->pageIndex][] = sprintf('0.6 w 0.55 G %.2F %.2F m %.2F %.2F l S 0 G', $x1, $y1, $x2, $y2);
     }
 
+    private function widthArray(): string
+    {
+        $gids = array_keys($this->usedGids);
+        sort($gids);
+        $parts = [];
+        $i = 0;
+        $n = count($gids);
+        while ($i < $n) {
+            $start = $gids[$i];
+            $widths = [$this->font->toPdf($this->font->advance($start))];
+            $j = $i + 1;
+            while ($j < $n && $gids[$j] === $gids[$j - 1] + 1) {
+                $widths[] = $this->font->toPdf($this->font->advance($gids[$j]));
+                $j++;
+            }
+            $parts[] = $start . ' [' . implode(' ', $widths) . ']';
+            $i = $j;
+        }
+        return '[' . implode(' ', $parts) . ']';
+    }
+
+    private function toUnicode(): string
+    {
+        $pairs = [];
+        foreach ($this->gidToUnicode as $gid => $cp) {
+            $pairs[] = sprintf('<%04X> <%04X>', $gid, $cp);
+        }
+        $blocks = '';
+        foreach (array_chunk($pairs, 100) as $chunk) {
+            $blocks .= count($chunk) . " beginbfchar\n" . implode("\n", $chunk) . "\nendbfchar\n";
+        }
+        return "/CIDInit /ProcSet findresource begin\n"
+            . "12 dict begin\nbegincmap\n"
+            . "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n"
+            . "/CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n"
+            . "1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n"
+            . $blocks
+            . "endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend";
+    }
+
     public function output(): string
     {
+        $raw = $this->fontBytes;
+        $compressed = function_exists('gzcompress') ? gzcompress($raw, 6) : false;
+        $fontStream = $compressed !== false ? $compressed : $raw;
+        $fontFilter = $compressed !== false ? ' /Filter /FlateDecode' : '';
+        $tu = $this->toUnicode();
+        $f = $this->font;
+        $bbox = '[' . $f->toPdf($f->bbox[0]) . ' ' . $f->toPdf($f->bbox[1]) . ' ' . $f->toPdf($f->bbox[2]) . ' ' . $f->toPdf($f->bbox[3]) . ']';
+        $flags = $f->italicAngle !== 0 ? 68 : 4;
         $n = count($this->pages);
-        $kids = implode(' ', array_map(static fn (int $i): string => (6 + 2 * $i) . ' 0 R', range(0, $n - 1)));
+
+        $kids = implode(' ', array_map(static fn (int $i): string => (10 + 2 * $i) . ' 0 R', range(0, $n - 1)));
         $objects = [
             '<< /Type /Catalog /Pages 2 0 R >>',
             "<< /Type /Pages /Kids [{$kids}] /Count {$n} >>",
-            '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding 5 0 R >>',
-            '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding 5 0 R >>',
-            '<< /Type /Encoding /Differences ' . pdf_font_differences() . ' >>',
+            "<< /Type /Font /Subtype /Type0 /BaseFont /{$this->fontName} /Encoding /Identity-H /DescendantFonts [4 0 R] /ToUnicode 8 0 R >>",
+            "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /{$this->fontName} /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor 5 0 R /CIDToGIDMap /Identity /W " . $this->widthArray() . ' >>',
+            "<< /Type /FontDescriptor /FontName /{$this->fontName} /Flags {$flags} /FontBBox {$bbox} /ItalicAngle {$f->italicAngle} /Ascent " . $f->toPdf($f->ascent) . ' /Descent ' . $f->toPdf($f->descent) . ' /CapHeight ' . $f->toPdf($f->capHeight) . ' /StemV 80 /FontFile2 6 0 R >>',
+            '<< /Length ' . strlen($fontStream) . ' /Length1 ' . strlen($raw) . $fontFilter . " >>\nstream\n" . $fontStream . "\nendstream",
+            '<< /Length 0 >> stream endstream',
+            '<< /Length ' . strlen($tu) . " >>\nstream\n" . $tu . "\nendstream",
+            '<< /Length 0 >> stream endstream',
         ];
         foreach ($this->pages as $i => $ops) {
             $stream = implode("\n", $ops);
-            $contentNum = 7 + 2 * $i;
-            $objects[] = '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] '
-                . '/Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> '
+            $contentNum = 11 + 2 * $i;
+            $objects[] = '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> '
                 . "/Contents {$contentNum} 0 R >>";
             $objects[] = '<< /Length ' . strlen($stream) . " >>\nstream\n" . $stream . "\nendstream";
         }
-        $out = "%PDF-1.4\n";
+        $out = "%PDF-1.5\n";
         $offsets = [];
         foreach ($objects as $i => $body) {
             $offsets[] = strlen($out);
             $out .= ($i + 1) . " 0 obj\n" . $body . "\nendobj\n";
         }
         $xref = strlen($out);
-        $out .= 'xref' . "\n" . '0 ' . (count($objects) + 1) . "\n" . "0000000000 65535 f \n";
+        $count = count($objects) + 1;
+        $out .= "xref\n0 {$count}\n0000000000 65535 f \n";
         foreach ($offsets as $offset) {
-            $out .= sprintf("%010d 00000 n \n", $offset);
+            $out .= sprintf('%010d 00000 n ', $offset) . "\n";
         }
-        $out .= 'trailer' . "\n" . '<< /Size ' . (count($objects) + 1) . " /Root 1 0 R >>\n"
-            . "startxref\n" . $xref . "\n%%EOF";
+        $out .= "trailer\n<< /Size {$count} /Root 1 0 R >>\nstartxref\n{$xref}\n%%EOF";
         return $out;
     }
 }
 
-function pdf_font_differences(): string
+function pdf_wrap_line(string $line, Ttf $font, float $maxWidth, int $size): array
 {
-    // Коды CP1251 -> имена глифов Adobe Glyph List. Стандартные шрифты PDF не содержат кириллицу,
-    // но просмотрщики (Adobe, Chrome/PDFium, Edge) сопоставляют afii-имена с Unicode и подставляют шрифт.
-    $map = [
-        132 => 'quotedblbase', 133 => 'ellipsis', 147 => 'quotedblleft', 148 => 'quotedblright',
-        149 => 'bullet', 150 => 'endash', 151 => 'emdash', 168 => 'afii10023', 171 => 'guillemotleft',
-        184 => 'afii10071', 185 => 'afii61352', 187 => 'guillemotright',
-    ];
-    for ($i = 0; $i < 6; $i++) {
-        $map[192 + $i] = 'afii' . (10017 + $i); // А..Е
-        $map[224 + $i] = 'afii' . (10065 + $i); // а..е
-    }
-    for ($i = 0; $i < 26; $i++) {
-        $map[198 + $i] = 'afii' . (10024 + $i); // Ж..Я (Ё в таблице afii идёт отдельно)
-        $map[230 + $i] = 'afii' . (10072 + $i); // ж..я
-    }
-    ksort($map);
-    $parts = [];
-    foreach ($map as $code => $name) {
-        $parts[] = $code . ' /' . $name;
-    }
-    return '[' . implode(' ', $parts) . ']';
-}
-
-function pdf_wrap_line(string $line, int $size): array
-{
-    $maxChars = max(20, (int) floor(511 / ($size * 0.52)));
     if ($line === '') {
         return [''];
     }
+    $spaceW = $font->stringWidth(' ', $size) ?: $size * 0.3;
     $result = [];
     $current = '';
+    $currentW = 0.0;
     foreach (explode(' ', $line) as $word) {
-        while (mb_strlen($word) > $maxChars) {
+        $wordW = $font->stringWidth($word, $size);
+        if ($current !== '' && $currentW + $spaceW + $wordW > $maxWidth) {
+            $result[] = $current;
+            $current = '';
+            $currentW = 0.0;
+        }
+        if ($wordW > $maxWidth) {
             if ($current !== '') {
                 $result[] = $current;
                 $current = '';
+                $currentW = 0.0;
             }
-            $result[] = mb_substr($word, 0, $maxChars);
-            $word = mb_substr($word, $maxChars);
+            $piece = '';
+            $pieceW = 0.0;
+            foreach (preg_split('//u', $word, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $ch) {
+                $cw = $font->stringWidth($ch, $size);
+                if ($piece !== '' && $pieceW + $cw > $maxWidth) {
+                    $result[] = $piece;
+                    $piece = '';
+                    $pieceW = 0.0;
+                }
+                $piece .= $ch;
+                $pieceW += $cw;
+            }
+            $current = $piece;
+            $currentW = $pieceW;
+            continue;
         }
-        $candidate = $current === '' ? $word : $current . ' ' . $word;
-        if (mb_strlen($candidate) > $maxChars) {
-            $result[] = $current;
-            $current = $word;
-        } else {
-            $current = $candidate;
-        }
+        $current = $current === '' ? $word : $current . ' ' . $word;
+        $currentW = $current === $word ? $wordW : $currentW + $spaceW + $wordW;
     }
     $result[] = $current;
     return $result;
@@ -130,24 +228,26 @@ function pdf_wrap_line(string $line, int $size): array
 function build_pdf(array $lines): string
 {
     $pdf = new Pdf();
-    $y = 800.0;
+    $font = $pdf->font();
+    $maxWidth = 511.0;
+    $y = 806.0;
     $page = 1;
     $first = true;
     foreach ($lines as $line) {
         $size = $first ? 14 : 11;
-        foreach (pdf_wrap_line((string) $line, $size) as $i => $chunk) {
-            if ($y < 60) {
+        foreach (pdf_wrap_line((string) $line, $font, $maxWidth, $size) as $i => $chunk) {
+            if ($y < 56) {
                 $pdf->text(42, 30, 9, 'АИС «СРА» — страница ' . $page);
                 $pdf->addPage();
                 $page++;
-                $y = 800.0;
+                $y = 806.0;
             }
             $pdf->text(42, $y, $size, $chunk, $first && $i === 0);
             if ($first && $i === 0) {
-                $pdf->line(42, $y - 6, 553, $y - 6);
-                $y -= 10;
+                $pdf->line(42, $y - 8, 553, $y - 8);
+                $y -= 8;
             }
-            $y -= 16;
+            $y -= 18;
         }
         $first = false;
     }

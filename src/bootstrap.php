@@ -19,6 +19,7 @@ require __DIR__ . '/auth.php';
 require __DIR__ . '/entities.php';
 require __DIR__ . '/entity_ops.php';
 require __DIR__ . '/layout.php';
+require __DIR__ . '/ttf.php';
 require __DIR__ . '/pdf.php';
 
 if (!is_dir(APP_ROOT . '/logs')) {

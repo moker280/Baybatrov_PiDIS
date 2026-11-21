@@ -20,7 +20,7 @@ return [
         ],
     ],
     'app' => [
-        'timezone' => 'Asia/Novokuznetsk',
+        'timezone' => 'Europe/Moscow',
         'idle_seconds' => 1800,
         'demo_mode' => true, // «Демо-код» на экране — учебная имитация второго фактора
         'captcha_order' => [1, 2, 3, 4],
@@ -33,5 +33,18 @@ return [
         // 64 hex-символа. Сгенерируйте: php -r "echo bin2hex(random_bytes(32)), PHP_EOL;"
         'data_key' => '0000000000000000000000000000000000000000000000000000000000000000',
         'api_token' => 'REPLACE_WITH_RANDOM_API_TOKEN',
+    ],
+    'pdf' => [
+        'font' => '',
+        'fonts' => [
+            'fonts/DejaVuSans.ttf',
+            'fonts/LiberationSans-Regular.ttf',
+            'fonts/arial.ttf',
+            '/usr/share/fonts/dejavu/DejaVuSans.ttf',
+            '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+            '/usr/share/fonts/TTF/DejaVuSans.ttf',
+            '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
+            'C:/Windows/Fonts/arial.ttf',
+        ],
     ],
 ];
